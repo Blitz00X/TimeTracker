@@ -43,6 +43,31 @@ public class SessionDao {
               AND DATE(start_time) = ?
             """;
 
+    private static final String DELETE_BY_CATEGORY_SQL = """
+            DELETE FROM sessions
+            WHERE category_id = ?
+            """;
+
+    private static final String UPSERT_USAGE_RESET_SQL = """
+            INSERT INTO category_usage_resets (category_id, usage_date, offset_seconds, override_limit_seconds)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(category_id, usage_date)
+            DO UPDATE SET offset_seconds = excluded.offset_seconds,
+                          override_limit_seconds = excluded.override_limit_seconds
+            """;
+
+    private static final String SELECT_USAGE_RESET_SQL = """
+            SELECT offset_seconds
+            FROM category_usage_resets
+            WHERE category_id = ?
+              AND usage_date = ?
+            """;
+
+    private static final String DELETE_USAGE_RESETS_FOR_CATEGORY_SQL = """
+            DELETE FROM category_usage_resets
+            WHERE category_id = ?
+            """;
+
     public Session insert(Session session) {
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(INSERT_SQL, Statement.RETURN_GENERATED_KEYS)) {
@@ -75,6 +100,16 @@ public class SessionDao {
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to delete session with id " + sessionId, e);
+        }
+    }
+
+    public void deleteByCategory(int categoryId) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(DELETE_BY_CATEGORY_SQL)) {
+            statement.setInt(1, categoryId);
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to delete sessions for category " + categoryId, e);
         }
     }
 
@@ -114,6 +149,62 @@ public class SessionDao {
             throw new IllegalStateException("Failed to fetch total duration for category " + categoryId, e);
         }
         return totalSeconds;
+    }
+
+    public void saveUsageAdjustment(LocalDate date, int categoryId, long offsetSeconds, Long overrideLimitSeconds) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(UPSERT_USAGE_RESET_SQL)) {
+            statement.setInt(1, categoryId);
+            statement.setString(2, date.toString());
+            statement.setLong(3, offsetSeconds);
+            if (overrideLimitSeconds == null) {
+                statement.setNull(4, Types.INTEGER);
+            } else {
+                statement.setLong(4, overrideLimitSeconds);
+            }
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to save usage offset for category " + categoryId, e);
+        }
+    }
+
+    public UsageAdjustment findUsageAdjustment(LocalDate date, int categoryId) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(SELECT_USAGE_RESET_SQL)) {
+            statement.setInt(1, categoryId);
+            statement.setString(2, date.toString());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    long offset = resultSet.getLong("offset_seconds");
+                    Long override = null;
+                    try {
+                        Object overrideObj = resultSet.getObject("override_limit_seconds");
+                        if (overrideObj != null) {
+                            override = ((Number) overrideObj).longValue();
+                        }
+                    } catch (SQLException ignored) {
+                        // Older database without override column; treat as null override.
+                    }
+                    return new UsageAdjustment(offset, override);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to fetch usage offset for category " + categoryId, e);
+        }
+        return new UsageAdjustment(0, null);
+    }
+
+    public void deleteUsageResetsForCategory(int categoryId) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(DELETE_USAGE_RESETS_FOR_CATEGORY_SQL)) {
+            statement.setInt(1, categoryId);
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to delete usage resets for category " + categoryId, e);
+        }
+    }
+
+    public record UsageAdjustment(long offsetSeconds, Long overrideLimitSeconds) {
     }
 
     private SessionDto mapRow(ResultSet rs) throws SQLException {

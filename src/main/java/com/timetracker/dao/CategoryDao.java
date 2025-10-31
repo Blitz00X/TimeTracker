@@ -13,6 +13,7 @@ public class CategoryDao {
     private static final String INSERT_SQL = "INSERT INTO categories(name, daily_limit_minutes) VALUES (?, ?)";
     private static final String UPDATE_LIMIT_SQL = "UPDATE categories SET daily_limit_minutes = ? WHERE id = ?";
     private static final String SELECT_BY_ID_SQL = "SELECT id, name, daily_limit_minutes FROM categories WHERE id = ?";
+    private static final String DELETE_SQL = "DELETE FROM categories WHERE id = ?";
 
     public List<Category> findAll() {
         List<Category> categories = new ArrayList<>();
@@ -86,6 +87,19 @@ public class CategoryDao {
             throw new IllegalStateException("Failed to load category with id " + categoryId, e);
         }
         throw new IllegalStateException("Category with id " + categoryId + " not found");
+    }
+
+    public void delete(int categoryId) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(DELETE_SQL)) {
+            statement.setInt(1, categoryId);
+            int affected = statement.executeUpdate();
+            if (affected == 0) {
+                throw new SQLException("Deleting category failed, no rows affected.");
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to delete category with id " + categoryId, e);
+        }
     }
 
     private Category mapRow(ResultSet resultSet) throws SQLException {

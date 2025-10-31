@@ -40,6 +40,7 @@
             </padding>
             <Label text="Today"/>
             <ListView fx:id="timelineListView" prefWidth="250" prefHeight="400"/>
+            <Button text="Export (.ics)" onAction="#onExportToday"/>
         </VBox>
     </right>
 </BorderPane>

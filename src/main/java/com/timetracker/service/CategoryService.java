@@ -38,4 +38,8 @@ public class CategoryService {
         }
         return categoryDao.updateDailyLimit(categoryId, dailyLimitMinutes);
     }
+
+    public void deleteCategory(int categoryId) {
+        categoryDao.delete(categoryId);
+    }
 }
