@@ -1,0 +1,13 @@
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/controller/MainController.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/db/DatabaseManager.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/TimeTrackerApp.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/model/Category.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/service/SessionService.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/dao/CategoryDao.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/model/SessionViewModel.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/service/CategoryService.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/db/DatabaseInitializer.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/util/TimeUtils.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/model/Session.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/model/SessionDto.java
+/home/kutay/Documents/GitHub/TimeTracker/src/main/java/com/timetracker/dao/SessionDao.java

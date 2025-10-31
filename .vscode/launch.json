@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Run TimeTracker+",
+      "request": "launch",
+      "mainClass": "com.timetracker.TimeTrackerApp",
+      "projectName": "timetracker",
+      "preLaunchTask": "mvnw: compile",
+      "runtimeExecutable": "/usr/lib/jvm/java-21-openjdk-amd64/bin/java",
+      "vmArgs": "--add-modules javafx.controls,javafx.fxml",
+      "classPaths": [
+        "${workspaceFolder}/target/classes",
+        "${env:HOME}/.m2/repository/org/xerial/sqlite-jdbc/3.45.2.0/sqlite-jdbc-3.45.2.0.jar",
+        "${env:HOME}/.m2/repository/org/slf4j/slf4j-api/2.0.12/slf4j-api-2.0.12.jar",
+        "${env:HOME}/.m2/repository/org/slf4j/slf4j-simple/2.0.12/slf4j-simple-2.0.12.jar"
+      ],
+      "modulePaths": [
+        "${env:HOME}/.m2/repository/org/openjfx/javafx-base/21.0.2/javafx-base-21.0.2.jar",
+        "${env:HOME}/.m2/repository/org/openjfx/javafx-base/21.0.2/javafx-base-21.0.2-linux.jar",
+        "${env:HOME}/.m2/repository/org/openjfx/javafx-controls/21.0.2/javafx-controls-21.0.2.jar",
+        "${env:HOME}/.m2/repository/org/openjfx/javafx-controls/21.0.2/javafx-controls-21.0.2-linux.jar",
+        "${env:HOME}/.m2/repository/org/openjfx/javafx-graphics/21.0.2/javafx-graphics-21.0.2.jar",
+        "${env:HOME}/.m2/repository/org/openjfx/javafx-graphics/21.0.2/javafx-graphics-21.0.2-linux.jar",
+        "${env:HOME}/.m2/repository/org/openjfx/javafx-fxml/21.0.2/javafx-fxml-21.0.2.jar",
+        "${env:HOME}/.m2/repository/org/openjfx/javafx-fxml/21.0.2/javafx-fxml-21.0.2-linux.jar"
+      ]
+    }
+  ]
+}

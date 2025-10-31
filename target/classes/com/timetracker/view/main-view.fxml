@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane xmlns="http://javafx.com/javafx/21.0.2"
+            xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.timetracker.controller.MainController">
+    <left>
+        <VBox spacing="10.0" BorderPane.alignment="CENTER">
+            <padding>
+                <Insets top="15" right="15" bottom="15" left="15"/>
+            </padding>
+            <Label text="Categories"/>
+            <ListView fx:id="categoryListView" prefWidth="200" prefHeight="400"/>
+            <Button fx:id="addCategoryButton" text="Add Category" onAction="#onAddCategory"/>
+        </VBox>
+    </left>
+    <center>
+        <VBox spacing="15" alignment="TOP_CENTER">
+            <padding>
+                <Insets top="30" right="30" bottom="30" left="30"/>
+            </padding>
+            <Label fx:id="timerLabel" text="00:00:00" style="-fx-font-size: 48px; -fx-font-weight: bold;"/>
+            <Label fx:id="selectedCategoryLabel" text="Selected Category: -" style="-fx-font-size: 16px;"/>
+            <Label fx:id="remainingTimeLabel" text="Remaining Today: -" style="-fx-font-size: 14px;"/>
+            <Label fx:id="startTimeLabel" text="Start Time: -" style="-fx-font-size: 14px;"/>
+            <Label fx:id="statusLabel" text="Status: Idle" style="-fx-font-size: 14px;"/>
+            <HBox spacing="10">
+                <Button fx:id="startStopButton" text="Start" onAction="#onStartStop"/>
+                <Button fx:id="resetButton" text="Reset" onAction="#onReset" disable="true"/>
+            </HBox>
+        </VBox>
+    </center>
+    <right>
+        <VBox spacing="10" BorderPane.alignment="CENTER">
+            <padding>
+                <Insets top="15" right="15" bottom="15" left="15"/>
+            </padding>
+            <Label text="Today"/>
+            <ListView fx:id="timelineListView" prefWidth="250" prefHeight="400"/>
+        </VBox>
+    </right>
+</BorderPane>
