@@ -1,0 +1,31 @@
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# Maven / Java
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+dependency-reduced-pom.xml
+
+# Logs
+*.log
+
+# Runtime artifacts
+timetracker.db
+*.db
+
+# Java module caches
+.classpath
+.project
+.settings/
+
+# OS junk
+ehthumbs.db
+Icon?

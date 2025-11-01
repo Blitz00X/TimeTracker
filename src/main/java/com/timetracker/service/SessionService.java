@@ -12,10 +12,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class SessionService {
@@ -82,15 +84,27 @@ public class SessionService {
     }
 
     public List<SessionViewModel> getTodaySessions() {
-        List<SessionDto> sessions = sessionDao.findSessionsForDate(LocalDate.now());
-        return sessions.stream()
-                .map(dto -> new SessionViewModel(
-                        dto.getId(),
-                        TimeUtils.formatHHmm(dto.getStartTime()),
-                        TimeUtils.formatHHmm(dto.getEndTime()),
-                        dto.getCategoryName(),
-                        dto.getDurationMinutes()))
-                .collect(Collectors.toList());
+        return toViewModels(sessionDao.findSessionsForDate(LocalDate.now()));
+    }
+
+    public List<SessionViewModel> getSessionsForDateRange(LocalDate startDate, LocalDate endDate) {
+        validateRange(startDate, endDate);
+        return toViewModels(sessionDao.findSessionsForDateRange(startDate, endDate));
+    }
+
+    public Map<String, Long> getCategorySummaryForDateRange(LocalDate startDate, LocalDate endDate) {
+        validateRange(startDate, endDate);
+        List<SessionDto> sessions = sessionDao.findSessionsForDateRange(startDate, endDate);
+        Map<Integer, String> categories = new LinkedHashMap<>();
+        for (SessionDto session : sessions) {
+            categories.putIfAbsent(session.getCategoryId(), session.getCategoryName());
+        }
+        Map<String, Long> summary = new LinkedHashMap<>();
+        for (Map.Entry<Integer, String> entry : categories.entrySet()) {
+            long minutes = sessionDao.findTotalDurationMinutesForDateRange(startDate, endDate, entry.getKey());
+            summary.put(entry.getValue(), minutes);
+        }
+        return summary;
     }
 
     public boolean deleteSession(int sessionId) {
@@ -98,6 +112,13 @@ public class SessionService {
             throw new IllegalArgumentException("sessionId must be positive");
         }
         return sessionDao.deleteById(sessionId);
+    }
+
+    public Optional<SessionDto> findSessionById(int sessionId) {
+        if (sessionId <= 0) {
+            throw new IllegalArgumentException("sessionId must be positive");
+        }
+        return sessionDao.findById(sessionId);
     }
 
     public synchronized OptionalLong getRemainingSecondsForCategoryToday(Category category) {
@@ -177,8 +198,25 @@ public class SessionService {
         sessionDao.deleteUsageResetsForCategory(categoryId);
     }
 
-    public String generateTodayIcs() {
-        List<SessionDto> sessions = sessionDao.findSessionsForDate(LocalDate.now());
+    public Session updateSession(int sessionId, LocalDateTime startTime, LocalDateTime endTime) {
+        if (sessionId <= 0) {
+            throw new IllegalArgumentException("sessionId must be positive");
+        }
+        Objects.requireNonNull(startTime, "startTime");
+        Objects.requireNonNull(endTime, "endTime");
+        if (!endTime.isAfter(startTime)) {
+            throw new IllegalArgumentException("endTime must be after startTime");
+        }
+        SessionDto existing = sessionDao.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Session not found: " + sessionId));
+        int durationMinutes = TimeUtils.minutesBetween(startTime, endTime);
+        Session updated = new Session(existing.getId(), existing.getCategoryId(), startTime, endTime, durationMinutes);
+        return sessionDao.update(updated);
+    }
+
+    public String generateIcsForDateRange(LocalDate startDate, LocalDate endDate) {
+        validateRange(startDate, endDate);
+        List<SessionDto> sessions = sessionDao.findSessionsForDateRange(startDate, endDate);
         DateTimeFormatter dtFormatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss");
         DateTimeFormatter stampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
         String lineSep = "\r\n";
@@ -205,6 +243,27 @@ public class SessionService {
         return builder.toString();
     }
 
+    public String generateTodayIcs() {
+        LocalDate today = LocalDate.now();
+        return generateIcsForDateRange(today, today);
+    }
+
+    public String generateCsvForDateRange(LocalDate startDate, LocalDate endDate) {
+        validateRange(startDate, endDate);
+        List<SessionDto> sessions = sessionDao.findSessionsForDateRange(startDate, endDate);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        String lineSep = System.lineSeparator();
+        StringBuilder builder = new StringBuilder();
+        builder.append("Category,Start Time,End Time,Duration (min)").append(lineSep);
+        for (SessionDto session : sessions) {
+            builder.append(escapeCsvValue(session.getCategoryName())).append(',')
+                    .append(escapeCsvValue(formatter.format(session.getStartTime()))).append(',')
+                    .append(escapeCsvValue(formatter.format(session.getEndTime()))).append(',')
+                    .append(session.getDurationMinutes()).append(lineSep);
+        }
+        return builder.toString();
+    }
+
     private String escapeText(String input) {
         if (input == null) {
             return "";
@@ -213,6 +272,36 @@ public class SessionService {
                 .replace(";", "\\;")
                 .replace(",", "\\,")
                 .replace("\n", "\\n");
+    }
+
+    private String escapeCsvValue(String value) {
+        String safeValue = value == null ? "" : value;
+        boolean needsQuoting = safeValue.contains(",") || safeValue.contains("\"")
+                || safeValue.contains("\n") || safeValue.contains("\r");
+        String escaped = safeValue.replace("\"", "\"\"");
+        if (needsQuoting) {
+            return "\"" + escaped + "\"";
+        }
+        return escaped;
+    }
+
+    private void validateRange(LocalDate startDate, LocalDate endDate) {
+        Objects.requireNonNull(startDate, "startDate");
+        Objects.requireNonNull(endDate, "endDate");
+        if (endDate.isBefore(startDate)) {
+            throw new IllegalArgumentException("endDate must be on or after startDate");
+        }
+    }
+
+    private List<SessionViewModel> toViewModels(List<SessionDto> sessions) {
+        return sessions.stream()
+                .map(dto -> new SessionViewModel(
+                        dto.getId(),
+                        TimeUtils.formatHHmm(dto.getStartTime()),
+                        TimeUtils.formatHHmm(dto.getEndTime()),
+                        dto.getCategoryName(),
+                        dto.getDurationMinutes()))
+                .collect(Collectors.toList());
     }
 
     public record ActiveSession(Category category, LocalDateTime startTime, Long allowedSeconds) {

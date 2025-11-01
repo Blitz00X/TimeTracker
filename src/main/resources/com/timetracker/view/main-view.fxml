@@ -34,13 +34,58 @@
         </VBox>
     </center>
     <right>
-        <VBox spacing="10" BorderPane.alignment="CENTER">
-            <padding>
-                <Insets top="15" right="15" bottom="15" left="15"/>
-            </padding>
-            <Label text="Today"/>
-            <ListView fx:id="timelineListView" prefWidth="250" prefHeight="400"/>
-            <Button text="Export (.ics)" onAction="#onExportToday"/>
-        </VBox>
+        <TabPane prefWidth="300" BorderPane.alignment="CENTER">
+            <tabs>
+                <Tab text="Today" closable="false">
+                    <content>
+                        <VBox spacing="10">
+                            <padding>
+                                <Insets top="15" right="15" bottom="15" left="15"/>
+                            </padding>
+                            <Label text="Today"/>
+                            <ListView fx:id="timelineListView" prefWidth="250" prefHeight="260"/>
+                            <HBox spacing="10">
+                                <Button text="Export Day (.ics)" onAction="#onExportTodayIcs"/>
+                                <Button text="Export Day (.csv)" onAction="#onExportTodayCsv"/>
+                            </HBox>
+                        </VBox>
+                    </content>
+                </Tab>
+                <Tab text="History" closable="false">
+                    <content>
+                        <VBox spacing="10">
+                            <padding>
+                                <Insets top="15" right="15" bottom="15" left="15"/>
+                            </padding>
+                            <Label text="History"/>
+                            <HBox spacing="10" alignment="CENTER_LEFT">
+                                <VBox spacing="5">
+                                    <Label text="From"/>
+                                    <DatePicker fx:id="rangeStartDatePicker"/>
+                                </VBox>
+                                <VBox spacing="5">
+                                    <Label text="To"/>
+                                    <DatePicker fx:id="rangeEndDatePicker"/>
+                                </VBox>
+                                <Button text="Refresh" onAction="#onRefreshRange"/>
+                            </HBox>
+                            <Label fx:id="rangeErrorLabel" textFill="#cc0000"/>
+                            <ListView fx:id="historyListView" prefWidth="250" prefHeight="180"/>
+                            <Label text="Category Summary"/>
+                            <TableView fx:id="summaryTable" prefHeight="140">
+                                <columns>
+                                    <TableColumn fx:id="summaryCategoryColumn" text="Category" prefWidth="170"/>
+                                    <TableColumn fx:id="summaryDurationColumn" text="Minutes" prefWidth="80"/>
+                                </columns>
+                            </TableView>
+                            <HBox spacing="10">
+                                <Button fx:id="exportRangeIcsButton" text="Export Range (.ics)" onAction="#onExportRangeIcs"/>
+                                <Button fx:id="exportRangeCsvButton" text="Export Range (.csv)" onAction="#onExportRangeCsv"/>
+                            </HBox>
+                        </VBox>
+                    </content>
+                </Tab>
+            </tabs>
+        </TabPane>
     </right>
 </BorderPane>

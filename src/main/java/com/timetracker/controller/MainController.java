@@ -1,18 +1,25 @@
 package com.timetracker.controller;
 
 import com.timetracker.model.Category;
+import com.timetracker.model.CategorySummaryViewModel;
 import com.timetracker.model.Session;
+import com.timetracker.model.SessionDto;
 import com.timetracker.model.SessionViewModel;
 import com.timetracker.service.CategoryService;
 import com.timetracker.service.SessionService;
 import com.timetracker.util.TimeUtils;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
+import javafx.event.ActionEvent;
+import javafx.beans.property.ReadOnlyObjectWrapper;
+import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.scene.input.KeyCode;
+import javafx.geometry.Insets;
+import javafx.scene.layout.GridPane;
 import javafx.stage.FileChooser;
 
 import java.io.File;
@@ -22,16 +29,49 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Collectors;
 
 public class MainController {
+
+    private static final DateTimeFormatter TIME_INPUT_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     @FXML
     private ListView<Category> categoryListView;
 
     @FXML
     private ListView<SessionViewModel> timelineListView;
+
+    @FXML
+    private ListView<SessionViewModel> historyListView;
+
+    @FXML
+    private DatePicker rangeStartDatePicker;
+
+    @FXML
+    private DatePicker rangeEndDatePicker;
+
+    @FXML
+    private TableView<CategorySummaryViewModel> summaryTable;
+
+    @FXML
+    private TableColumn<CategorySummaryViewModel, String> summaryCategoryColumn;
+
+    @FXML
+    private TableColumn<CategorySummaryViewModel, Number> summaryDurationColumn;
+
+    @FXML
+    private Label rangeErrorLabel;
+
+    @FXML
+    private Button exportRangeIcsButton;
+
+    @FXML
+    private Button exportRangeCsvButton;
 
     @FXML
     private Label timerLabel;
@@ -62,6 +102,8 @@ public class MainController {
 
     private final ObservableList<Category> categoryItems = FXCollections.observableArrayList();
     private final ObservableList<SessionViewModel> timelineItems = FXCollections.observableArrayList();
+    private final ObservableList<SessionViewModel> historyItems = FXCollections.observableArrayList();
+    private final ObservableList<CategorySummaryViewModel> summaryItems = FXCollections.observableArrayList();
 
     private Timeline tickingTimeline;
 
@@ -69,68 +111,7 @@ public class MainController {
     private void initialize() {
         categoryListView.setItems(categoryItems);
         categoryListView.setPlaceholder(new Label("No categories yet"));
-        categoryListView.setCellFactory(listView -> {
-            MenuItem setLimitItem = new MenuItem("Set Daily Limit...");
-            MenuItem adjustRemainingItem = new MenuItem("Adjust Today's Remaining...");
-            MenuItem resetUsageItem = new MenuItem("Reset Today's Usage");
-            MenuItem deleteItem = new MenuItem("Delete Category");
-            ContextMenu contextMenu = new ContextMenu(setLimitItem, adjustRemainingItem, resetUsageItem, deleteItem);
-
-            ListCell<Category> cell = new ListCell<>() {
-                @Override
-                protected void updateItem(Category item, boolean empty) {
-                    super.updateItem(item, empty);
-                    if (empty || item == null) {
-                        setText(null);
-                        resetUsageItem.setDisable(true);
-                    } else {
-                        setText(formatCategoryDisplay(item));
-                        resetUsageItem.setDisable(item.getDailyLimitMinutes() == null);
-                    }
-                }
-            };
-
-            setLimitItem.setOnAction(event -> {
-                Category item = cell.getItem();
-                if (item != null) {
-                    categoryListView.getSelectionModel().select(item);
-                    promptSetCategoryLimit(item);
-                }
-            });
-
-            adjustRemainingItem.setOnAction(event -> {
-                Category item = cell.getItem();
-                if (item != null) {
-                    categoryListView.getSelectionModel().select(item);
-                    promptAdjustRemainingTime(item);
-                }
-            });
-
-            resetUsageItem.setOnAction(event -> {
-                Category item = cell.getItem();
-                if (item != null && item.getDailyLimitMinutes() != null) {
-                    categoryListView.getSelectionModel().select(item);
-                    promptResetCategoryUsage(item);
-                }
-            });
-
-            deleteItem.setOnAction(event -> {
-                Category item = cell.getItem();
-                if (item != null) {
-                    categoryListView.getSelectionModel().select(item);
-                    promptDeleteCategory(item);
-                }
-            });
-
-            cell.emptyProperty().addListener((obs, wasEmpty, isNowEmpty) -> {
-                if (isNowEmpty) {
-                    cell.setContextMenu(null);
-                } else {
-                    cell.setContextMenu(contextMenu);
-                }
-            });
-            return cell;
-        });
+        categoryListView.setCellFactory(listView -> new CategoryListCell(this));
         categoryListView.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, newValue) -> {
             updateSelectedCategoryLabel(newValue);
             updateControlAvailability();
@@ -138,48 +119,25 @@ public class MainController {
 
         timelineListView.setItems(timelineItems);
         timelineListView.setPlaceholder(new Label("No sessions recorded today"));
-        timelineListView.setCellFactory(listView -> {
-            MenuItem deleteItem = new MenuItem("Delete");
-            ContextMenu contextMenu = new ContextMenu(deleteItem);
+        configureSessionList(timelineListView);
 
-            ListCell<SessionViewModel> cell = new ListCell<>() {
-                @Override
-                protected void updateItem(SessionViewModel item, boolean empty) {
-                    super.updateItem(item, empty);
-                    if (empty || item == null) {
-                        setText(null);
-                    } else {
-                        setText(item.asDisplayString());
-                    }
-                }
-            };
+        historyListView.setItems(historyItems);
+        historyListView.setPlaceholder(new Label("No sessions in range"));
+        configureSessionList(historyListView);
 
-            deleteItem.setOnAction(event -> {
-                SessionViewModel item = cell.getItem();
-                if (item != null) {
-                    promptDeleteSession(item);
-                }
-            });
+        summaryTable.setItems(summaryItems);
+        summaryTable.setPlaceholder(new Label("No activity for range"));
+        summaryCategoryColumn.setCellValueFactory(data -> new ReadOnlyStringWrapper(data.getValue().categoryName()));
+        summaryDurationColumn.setCellValueFactory(data -> new ReadOnlyObjectWrapper<>(data.getValue().totalMinutes()));
 
-            cell.emptyProperty().addListener((obs, wasEmpty, isNowEmpty) -> {
-                if (isNowEmpty) {
-                    cell.setContextMenu(null);
-                } else {
-                    cell.setContextMenu(contextMenu);
-                }
-            });
-
-            return cell;
-        });
-
-        timelineListView.setOnKeyPressed(event -> {
-            if (event.getCode() == KeyCode.DELETE) {
-                SessionViewModel selected = timelineListView.getSelectionModel().getSelectedItem();
-                if (selected != null) {
-                    promptDeleteSession(selected);
-                }
-            }
-        });
+        LocalDate today = LocalDate.now();
+        rangeErrorLabel.setText("");
+        rangeStartDatePicker.setValue(today.minusDays(6));
+        rangeEndDatePicker.setValue(today);
+        rangeStartDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> refreshHistoryRange());
+        rangeEndDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> refreshHistoryRange());
+        exportRangeIcsButton.setDisable(true);
+        exportRangeCsvButton.setDisable(true);
 
         startStopButton.setText("Start");
         startStopButton.setDisable(true);
@@ -192,6 +150,7 @@ public class MainController {
 
         loadCategories();
         refreshTimeline();
+        refreshHistoryRange();
     }
 
     @FXML
@@ -216,26 +175,58 @@ public class MainController {
     }
 
     @FXML
-    private void onExportToday() {
-        if (sessionService.getTodaySessions().isEmpty()) {
+    private void onExportTodayIcs() {
+        if (timelineItems.isEmpty()) {
             showInfo("Nothing to export", "No sessions recorded today.");
             return;
         }
-        FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("Export Today to iCalendar");
-        fileChooser.setInitialFileName("TimeTracker-" + LocalDate.now() + ".ics");
-        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("iCalendar Files", "*.ics"));
-        File target = fileChooser.showSaveDialog(timerLabel.getScene().getWindow());
-        if (target == null) {
+        LocalDate today = LocalDate.now();
+        exportIcsForRange(today, today, "TimeTracker-" + today + ".ics");
+    }
+
+    @FXML
+    private void onExportTodayCsv() {
+        if (timelineItems.isEmpty()) {
+            showInfo("Nothing to export", "No sessions recorded today.");
             return;
         }
-        try {
-            String ics = sessionService.generateTodayIcs();
-            Files.writeString(target.toPath(), ics, StandardCharsets.UTF_8);
-            showInfo("Export complete", "Saved today's sessions to:\n" + target.getAbsolutePath());
-        } catch (IOException e) {
-            showError("Export failed", "Unable to write file: " + e.getMessage());
+        LocalDate today = LocalDate.now();
+        exportCsvForRange(today, today, "TimeTracker-" + today + ".csv");
+    }
+
+    @FXML
+    private void onExportRangeIcs() {
+        Optional<DateRange> range = resolveSelectedRange();
+        if (range.isEmpty()) {
+            return;
         }
+        if (historyItems.isEmpty()) {
+            showInfo("Nothing to export", "No sessions found for the selected range.");
+            return;
+        }
+        DateRange value = range.get();
+        exportIcsForRange(value.start(), value.end(),
+                "TimeTracker-" + value.start() + "_" + value.end() + ".ics");
+    }
+
+    @FXML
+    private void onExportRangeCsv() {
+        Optional<DateRange> range = resolveSelectedRange();
+        if (range.isEmpty()) {
+            return;
+        }
+        if (historyItems.isEmpty()) {
+            showInfo("Nothing to export", "No sessions found for the selected range.");
+            return;
+        }
+        DateRange value = range.get();
+        exportCsvForRange(value.start(), value.end(),
+                "TimeTracker-" + value.start() + "_" + value.end() + ".csv");
+    }
+
+    @FXML
+    private void onRefreshRange() {
+        refreshHistoryRange();
     }
 
     @FXML
@@ -301,6 +292,7 @@ public class MainController {
         resetButton.setDisable(true);
         updateControlAvailability();
         refreshTimeline();
+        refreshHistoryRange();
         updateSelectedCategoryLabel(categoryListView.getSelectionModel().getSelectedItem());
     }
 
@@ -323,6 +315,46 @@ public class MainController {
         timelineItems.setAll(sessionService.getTodaySessions());
         updateSelectedCategoryLabel(categoryListView.getSelectionModel().getSelectedItem());
         updateControlAvailability();
+    }
+
+    private void refreshHistoryRange() {
+        if (rangeStartDatePicker == null || rangeEndDatePicker == null) {
+            return;
+        }
+        LocalDate start = rangeStartDatePicker.getValue();
+        LocalDate end = rangeEndDatePicker.getValue();
+        if (start == null || end == null) {
+            rangeErrorLabel.setText("Select both start and end dates.");
+            historyItems.clear();
+            summaryItems.clear();
+            exportRangeIcsButton.setDisable(true);
+            exportRangeCsvButton.setDisable(true);
+            return;
+        }
+        if (end.isBefore(start)) {
+            rangeErrorLabel.setText("End date must be on or after start date.");
+            historyItems.clear();
+            summaryItems.clear();
+            exportRangeIcsButton.setDisable(true);
+            exportRangeCsvButton.setDisable(true);
+            return;
+        }
+        rangeErrorLabel.setText("");
+        historyItems.setAll(sessionService.getSessionsForDateRange(start, end));
+        summaryItems.setAll(sessionService.getCategorySummaryForDateRange(start, end).entrySet().stream()
+                .map(entry -> new CategorySummaryViewModel(entry.getKey(), entry.getValue()))
+                .collect(Collectors.toList()));
+        boolean hasData = !historyItems.isEmpty();
+        exportRangeIcsButton.setDisable(!hasData);
+        exportRangeCsvButton.setDisable(!hasData);
+    }
+
+    void selectCategory(Category category) {
+        if (category == null) {
+            categoryListView.getSelectionModel().clearSelection();
+        } else {
+            categoryListView.getSelectionModel().select(category);
+        }
     }
 
     private boolean updateRemainingTimeLabel(Category category) {
@@ -362,14 +394,14 @@ public class MainController {
         }
     }
 
-    private String formatCategoryDisplay(Category category) {
+    String formatCategoryDisplay(Category category) {
         if (category.getDailyLimitMinutes() == null) {
             return category.getName();
         }
         return category.getName() + " (" + category.getDailyLimitMinutes() + " dk/day)";
     }
 
-    private void promptSetCategoryLimit(Category category) {
+    void promptSetCategoryLimit(Category category) {
         LimitDialogResult result = promptForDailyLimit(category.getDailyLimitMinutes());
         if (result.cancelled()) {
             return;
@@ -542,7 +574,7 @@ public class MainController {
         alert.showAndWait();
     }
 
-    private void promptResetCategoryUsage(Category category) {
+    void promptResetCategoryUsage(Category category) {
         Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
         confirmation.setTitle("Reset Daily Usage");
         confirmation.setHeaderText("Reset today's usage for \"" + category.getName() + "\"?");
@@ -570,7 +602,7 @@ public class MainController {
         }
     }
 
-    private void promptAdjustRemainingTime(Category category) {
+    void promptAdjustRemainingTime(Category category) {
         TextInputDialog dialog = new TextInputDialog();
         dialog.setTitle("Adjust Today's Remaining Time");
         dialog.setHeaderText("Set today's remaining time for \"" + category.getName() + "\".");
@@ -599,7 +631,7 @@ public class MainController {
         }
     }
 
-    private void promptDeleteCategory(Category category) {
+    void promptDeleteCategory(Category category) {
         if (sessionService.getActiveSession()
                 .map(active -> active.category().getId() == category.getId())
                 .orElse(false)) {
@@ -617,6 +649,7 @@ public class MainController {
                 categoryService.deleteCategory(category.getId());
                 removeCategoryFromList(category.getId());
                 refreshTimeline();
+                refreshHistoryRange();
             } catch (IllegalStateException e) {
                 showError("Unable to delete category", e.getMessage());
             }
@@ -643,7 +676,77 @@ public class MainController {
         updateControlAvailability();
     }
 
-    private void promptDeleteSession(SessionViewModel session) {
+    void promptEditSession(SessionViewModel session) {
+        Optional<SessionDto> sessionOpt;
+        try {
+            sessionOpt = sessionService.findSessionById(session.id());
+        } catch (IllegalArgumentException e) {
+            showError("Session not found", e.getMessage());
+            return;
+        }
+        if (sessionOpt.isEmpty()) {
+            showError("Session not found", "The selected session could not be located.");
+            return;
+        }
+        SessionDto existing = sessionOpt.get();
+
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Edit Session");
+        dialog.setHeaderText("Update session for \"" + existing.getCategoryName() + "\"");
+        ButtonType saveButtonType = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(saveButtonType, ButtonType.CANCEL);
+
+        DatePicker startDatePicker = new DatePicker(existing.getStartTime().toLocalDate());
+        TextField startTimeField = new TextField(existing.getStartTime().toLocalTime().format(TIME_INPUT_FORMATTER));
+        DatePicker endDatePicker = new DatePicker(existing.getEndTime().toLocalDate());
+        TextField endTimeField = new TextField(existing.getEndTime().toLocalTime().format(TIME_INPUT_FORMATTER));
+        Label validationLabel = new Label();
+        validationLabel.setStyle("-fx-text-fill: red;");
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(10, 10, 0, 10));
+        grid.add(new Label("Start date:"), 0, 0);
+        grid.add(startDatePicker, 1, 0);
+        grid.add(new Label("Start time (HH:mm):"), 0, 1);
+        grid.add(startTimeField, 1, 1);
+        grid.add(new Label("End date:"), 0, 2);
+        grid.add(endDatePicker, 1, 2);
+        grid.add(new Label("End time (HH:mm):"), 0, 3);
+        grid.add(endTimeField, 1, 3);
+        grid.add(validationLabel, 0, 4, 2, 1);
+        dialog.getDialogPane().setContent(grid);
+
+        Button saveButton = (Button) dialog.getDialogPane().lookupButton(saveButtonType);
+        saveButton.addEventFilter(ActionEvent.ACTION, event -> {
+            try {
+                LocalDate startDate = startDatePicker.getValue();
+                LocalDate endDate = endDatePicker.getValue();
+                if (startDate == null || endDate == null) {
+                    throw new IllegalArgumentException("Select start and end dates.");
+                }
+                LocalTime startTime = LocalTime.parse(startTimeField.getText().trim(), TIME_INPUT_FORMATTER);
+                LocalTime endTime = LocalTime.parse(endTimeField.getText().trim(), TIME_INPUT_FORMATTER);
+                LocalDateTime newStart = LocalDateTime.of(startDate, startTime);
+                LocalDateTime newEnd = LocalDateTime.of(endDate, endTime);
+                sessionService.updateSession(session.id(), newStart, newEnd);
+                validationLabel.setText("");
+                refreshTimeline();
+                refreshHistoryRange();
+            } catch (DateTimeParseException ex) {
+                validationLabel.setText("Enter time in HH:mm format.");
+                event.consume();
+            } catch (IllegalArgumentException | IllegalStateException ex) {
+                validationLabel.setText(ex.getMessage());
+                event.consume();
+            }
+        });
+
+        dialog.showAndWait();
+    }
+
+    void promptDeleteSession(SessionViewModel session) {
         Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION);
         confirmation.setTitle("Delete Session");
         confirmation.setHeaderText("Delete this session?");
@@ -654,7 +757,9 @@ public class MainController {
                 boolean deleted = sessionService.deleteSession(session.id());
                 if (deleted) {
                     refreshTimeline();
+                    refreshHistoryRange();
                     timelineListView.getSelectionModel().clearSelection();
+                    historyListView.getSelectionModel().clearSelection();
                     updateSelectedCategoryLabel(categoryListView.getSelectionModel().getSelectedItem());
                 } else {
                     showError("Unable to delete session", "The session could not be found. It may have already been deleted.");
@@ -663,5 +768,75 @@ public class MainController {
                 showError("Unable to delete session", e.getMessage());
             }
         }
+    }
+
+    private void exportIcsForRange(LocalDate start, LocalDate end, String defaultFileName) {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Export Sessions to iCalendar");
+        fileChooser.setInitialFileName(defaultFileName);
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("iCalendar Files", "*.ics"));
+        File target = fileChooser.showSaveDialog(timerLabel.getScene().getWindow());
+        if (target == null) {
+            return;
+        }
+        try {
+            String ics = sessionService.generateIcsForDateRange(start, end);
+            Files.writeString(target.toPath(), ics, StandardCharsets.UTF_8);
+            showInfo("Export complete", "Saved sessions to:\n" + target.getAbsolutePath());
+        } catch (IOException e) {
+            showError("Export failed", "Unable to write file: " + e.getMessage());
+        }
+    }
+
+    private void exportCsvForRange(LocalDate start, LocalDate end, String defaultFileName) {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Export Sessions to CSV");
+        fileChooser.setInitialFileName(defaultFileName);
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV Files", "*.csv"));
+        File target = fileChooser.showSaveDialog(timerLabel.getScene().getWindow());
+        if (target == null) {
+            return;
+        }
+        try {
+            String csv = sessionService.generateCsvForDateRange(start, end);
+            Files.writeString(target.toPath(), csv, StandardCharsets.UTF_8);
+            showInfo("Export complete", "Saved sessions to:\n" + target.getAbsolutePath());
+        } catch (IOException e) {
+            showError("Export failed", "Unable to write file: " + e.getMessage());
+        }
+    }
+
+    private Optional<DateRange> resolveSelectedRange() {
+        if (rangeStartDatePicker == null || rangeEndDatePicker == null) {
+            return Optional.empty();
+        }
+        LocalDate start = rangeStartDatePicker.getValue();
+        LocalDate end = rangeEndDatePicker.getValue();
+        if (start == null || end == null) {
+            rangeErrorLabel.setText("Select both start and end dates.");
+            showError("Invalid date range", "Select both start and end dates.");
+            return Optional.empty();
+        }
+        if (end.isBefore(start)) {
+            rangeErrorLabel.setText("End date must be on or after start date.");
+            showError("Invalid date range", "End date must be on or after start date.");
+            return Optional.empty();
+        }
+        return Optional.of(new DateRange(start, end));
+    }
+
+    private void configureSessionList(ListView<SessionViewModel> listView) {
+        listView.setCellFactory(view -> new SessionListCell(this));
+        listView.setOnKeyPressed(event -> {
+            if (event.getCode() == KeyCode.DELETE) {
+                SessionViewModel selected = listView.getSelectionModel().getSelectedItem();
+                if (selected != null) {
+                    promptDeleteSession(selected);
+                }
+            }
+        });
+    }
+
+    private record DateRange(LocalDate start, LocalDate end) {
     }
 }
