@@ -1,9 +1,15 @@
 package com.timetracker.controller;
 
 import com.timetracker.model.Category;
+import com.timetracker.util.CategoryColorUtil;
+import javafx.geometry.Insets;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.MenuItem;
+import javafx.scene.layout.HBox;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Circle;
+import javafx.scene.text.Text;
 
 /**
  * ListCell implementation for displaying categories with contextual actions.
@@ -64,8 +70,15 @@ class CategoryListCell extends ListCell<Category> {
         if (empty || item == null) {
             setText(null);
             setContextMenu(null);
+            setGraphic(null);
         } else {
-            setText(controller.formatCategoryDisplay(item));
+            String colorHex = CategoryColorUtil.colorFor(item.getName());
+            Circle dot = new Circle(5, Color.web(colorHex));
+            Text name = new Text(controller.formatCategoryDisplay(item));
+            HBox box = new HBox(8, dot, name);
+            box.setPadding(new Insets(2, 0, 2, 0));
+            setGraphic(box);
+            setText(null);
             resetUsageItem.setDisable(item.getDailyLimitMinutes() == null);
             setContextMenu(contextMenu);
         }

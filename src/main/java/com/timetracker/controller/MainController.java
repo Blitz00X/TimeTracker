@@ -7,6 +7,15 @@ import com.timetracker.model.SessionDto;
 import com.timetracker.model.SessionViewModel;
 import com.timetracker.service.CategoryService;
 import com.timetracker.service.SessionService;
+import com.timetracker.tracking.ActivityAggregationJob;
+import com.timetracker.tracking.ActivityDailyTotal;
+import com.timetracker.tracking.ActivityEvent;
+import com.timetracker.tracking.ActivityEventDao;
+import com.timetracker.tracking.ActivityEventType;
+import com.timetracker.tracking.ActivityReportingService;
+import com.timetracker.tracking.ActivityTrackingConfig;
+import com.timetracker.tracking.ActivityTrackingService;
+import com.timetracker.tracking.ActivityTotalViewModel;
 import com.timetracker.util.TimeUtils;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
@@ -16,8 +25,10 @@ import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
+import javafx.beans.binding.Bindings;
 import javafx.scene.control.*;
 import javafx.scene.input.KeyCode;
+import javafx.scene.control.Tooltip;
 import javafx.geometry.Insets;
 import javafx.scene.layout.GridPane;
 import javafx.stage.FileChooser;
@@ -26,12 +37,15 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Instant;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.stream.Collectors;
@@ -63,6 +77,27 @@ public class MainController {
 
     @FXML
     private TableColumn<CategorySummaryViewModel, Number> summaryDurationColumn;
+
+    @FXML
+    private TableView<ActivityTotalViewModel> autoTotalsTable;
+
+    @FXML
+    private TableColumn<ActivityTotalViewModel, String> autoAppColumn;
+
+    @FXML
+    private TableColumn<ActivityTotalViewModel, String> autoUrlColumn;
+
+    @FXML
+    private TableColumn<ActivityTotalViewModel, String> autoDurationColumn;
+
+    @FXML
+    private CheckBox trackingPauseToggle;
+
+    @FXML
+    private Button autoExportButton;
+
+    @FXML
+    private DatePicker autoDatePicker;
 
     @FXML
     private Label rangeErrorLabel;
@@ -99,11 +134,17 @@ public class MainController {
 
     private final CategoryService categoryService = new CategoryService();
     private final SessionService sessionService = new SessionService();
+    private final ActivityEventDao activityEventDao = new ActivityEventDao();
+    private ActivityAggregationJob aggregationJob;
+    private ActivityReportingService reportingService;
+    private ActivityTrackingService trackingService;
+    private ActivityTrackingConfig trackingConfig;
 
     private final ObservableList<Category> categoryItems = FXCollections.observableArrayList();
     private final ObservableList<SessionViewModel> timelineItems = FXCollections.observableArrayList();
     private final ObservableList<SessionViewModel> historyItems = FXCollections.observableArrayList();
     private final ObservableList<CategorySummaryViewModel> summaryItems = FXCollections.observableArrayList();
+    private final ObservableList<ActivityTotalViewModel> autoTotals = FXCollections.observableArrayList();
 
     private Timeline tickingTimeline;
 
@@ -130,6 +171,28 @@ public class MainController {
         summaryCategoryColumn.setCellValueFactory(data -> new ReadOnlyStringWrapper(data.getValue().categoryName()));
         summaryDurationColumn.setCellValueFactory(data -> new ReadOnlyObjectWrapper<>(data.getValue().totalMinutes()));
 
+        if (autoTotalsTable != null) {
+            autoTotalsTable.setItems(autoTotals);
+            autoTotalsTable.setPlaceholder(new Label("No auto activity"));
+            if (autoDatePicker != null) {
+                autoDatePicker.setValue(LocalDate.now());
+                autoDatePicker.valueProperty().addListener((obs, oldVal, newVal) -> refreshAutoUsage());
+            }
+            if (autoAppColumn != null) {
+                autoAppColumn.setCellValueFactory(data -> new ReadOnlyStringWrapper(data.getValue().appOrSite()));
+            }
+            if (autoUrlColumn != null) {
+                autoUrlColumn.setCellValueFactory(data -> new ReadOnlyStringWrapper(
+                        data.getValue().url() == null ? "" : data.getValue().url()));
+            }
+            if (autoDurationColumn != null) {
+                autoDurationColumn.setCellValueFactory(data -> new ReadOnlyStringWrapper(data.getValue().formattedDuration()));
+            }
+            if (autoExportButton != null) {
+                autoExportButton.disableProperty().bind(Bindings.isEmpty(autoTotals));
+            }
+        }
+
         LocalDate today = LocalDate.now();
         rangeErrorLabel.setText("");
         rangeStartDatePicker.setValue(today.minusDays(6));
@@ -151,6 +214,8 @@ public class MainController {
         loadCategories();
         refreshTimeline();
         refreshHistoryRange();
+        refreshAutoUsage();
+        updateTrackingToggle();
     }
 
     @FXML
@@ -172,6 +237,26 @@ public class MainController {
                 createCategory(trimmed, limitResult.limitMinutes());
             }
         });
+    }
+
+    @FXML
+    private void onEditCategory() {
+        Category selected = categoryListView.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            showError("No category selected", "Please select a category to edit.");
+            return;
+        }
+        promptSetCategoryLimit(selected);
+    }
+
+    @FXML
+    private void onDeleteCategory() {
+        Category selected = categoryListView.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            showError("No category selected", "Please select a category to delete.");
+            return;
+        }
+        promptDeleteCategory(selected);
     }
 
     @FXML
@@ -269,6 +354,7 @@ public class MainController {
                 allowedSeconds = remainingSeconds;
             }
             sessionService.startSession(selected, allowedSeconds);
+            emitManualEvent(ActivityEventType.MANUAL_START, selected);
             updateSelectedCategoryLabel(selected);
             sessionService.getActiveSession()
                     .ifPresent(active -> startTimeLabel.setText("Start Time: " + TimeUtils.formatHHmm(active.startTime())));
@@ -284,7 +370,8 @@ public class MainController {
 
     private void handleStop() {
         stopTimer();
-        Optional<Session> saved = sessionService.stopSession();
+        sessionService.stopSession();
+        emitManualEvent(ActivityEventType.MANUAL_STOP, categoryListView.getSelectionModel().getSelectedItem());
         timerLabel.setText("00:00:00");
         startTimeLabel.setText("Start Time: -");
         statusLabel.setText("Status: Idle");
@@ -293,6 +380,7 @@ public class MainController {
         updateControlAvailability();
         refreshTimeline();
         refreshHistoryRange();
+        refreshAutoUsage();
         updateSelectedCategoryLabel(categoryListView.getSelectionModel().getSelectedItem());
     }
 
@@ -463,6 +551,16 @@ public class MainController {
         startStopButton.setText("Start");
         resetButton.setDisable(true);
         refreshTimeline();
+    }
+
+    private void emitManualEvent(ActivityEventType type, Category category) {
+        try {
+            String appId = category != null ? category.getName() : null;
+            String payload = category != null ? "{\"categoryId\":" + category.getId() + "}" : null;
+            activityEventDao.insert(new ActivityEvent(Instant.now(), type, appId, null, null, payload));
+        } catch (Exception ignored) {
+            // best-effort; manual tracking should not break UI
+        }
     }
 
     private record LimitDialogResult(boolean cancelled, Integer limitMinutes) {
@@ -835,6 +933,153 @@ public class MainController {
                 }
             }
         });
+    }
+
+    @FXML
+    private void onRefreshAuto() {
+        refreshAutoUsage();
+    }
+
+    @FXML
+    private void onToggleTracking() {
+        if (trackingService == null || trackingPauseToggle == null) {
+            return;
+        }
+        boolean pause = trackingPauseToggle.isSelected();
+        trackingService.setPaused(pause);
+    }
+
+    @FXML
+    private void onExportAutoCsv() {
+        if (autoTotals.isEmpty()) {
+            showInfo("Nothing to export", "No auto activity totals available.");
+            return;
+        }
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Export Auto Usage to CSV");
+        LocalDate date = autoDatePicker != null && autoDatePicker.getValue() != null
+                ? autoDatePicker.getValue()
+                : LocalDate.now();
+        fileChooser.setInitialFileName("AutoUsage-" + date + ".csv");
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV Files", "*.csv"));
+        File target = fileChooser.showSaveDialog(timerLabel.getScene().getWindow());
+        if (target == null) {
+            return;
+        }
+        String lineSep = System.lineSeparator();
+        StringBuilder builder = new StringBuilder();
+        builder.append("App/Site,URL,Duration").append(lineSep);
+        for (ActivityTotalViewModel row : autoTotals) {
+            builder.append(escapeCsv(row.appOrSite())).append(',')
+                    .append(escapeCsv(row.url() == null ? "" : row.url())).append(',')
+                    .append(row.formattedDuration()).append(lineSep);
+        }
+        try {
+            Files.writeString(target.toPath(), builder.toString(), StandardCharsets.UTF_8);
+            showInfo("Export complete", "Saved auto usage to:\n" + target.getAbsolutePath());
+        } catch (IOException e) {
+            showError("Export failed", "Unable to write file: " + e.getMessage());
+        }
+    }
+
+    public void setTrackingDependencies(ActivityTrackingService trackingService,
+                                        ActivityAggregationJob aggregationJob,
+                                        ActivityReportingService reportingService,
+                                        ActivityTrackingConfig config) {
+        this.trackingService = trackingService;
+        this.aggregationJob = aggregationJob;
+        this.reportingService = reportingService;
+        this.trackingConfig = config;
+        updateTrackingToggle();
+    }
+
+    private void refreshAutoUsage() {
+        if (aggregationJob == null || reportingService == null) {
+            return;
+        }
+        try {
+            LocalDate date = autoDatePicker != null && autoDatePicker.getValue() != null
+                    ? autoDatePicker.getValue()
+                    : LocalDate.now();
+            Instant startOfDay = date.atStartOfDay().atZone(java.time.ZoneId.systemDefault()).toInstant();
+            Instant endOfDay = date.plusDays(1).atStartOfDay().atZone(java.time.ZoneId.systemDefault()).toInstant();
+            aggregationJob.aggregate(startOfDay, endOfDay, true);
+            List<ActivityDailyTotal> totals = reportingService.getTotalsForDate(date);
+            autoTotals.setAll(toAutoViewModels(totals));
+        } catch (Exception e) {
+            autoTotals.clear();
+        }
+    }
+
+    private List<ActivityTotalViewModel> toAutoViewModels(List<ActivityDailyTotal> totals) {
+        List<ActivityTotalViewModel> viewModels = new ArrayList<>();
+        for (ActivityDailyTotal total : totals) {
+            String label = total.appId();
+            if (total.domain() != null) {
+                label = total.appId() + " / " + total.domain();
+            }
+            viewModels.add(new ActivityTotalViewModel(
+                    label == null ? "-" : label,
+                    total.url(),
+                    total.totalSeconds(),
+                    TimeUtils.formatHHmmss(total.totalSeconds())
+            ));
+        }
+        return viewModels;
+    }
+
+    private String escapeCsv(String value) {
+        String safeValue = value == null ? "" : value;
+        boolean needsQuoting = safeValue.contains(",") || safeValue.contains("\"")
+                || safeValue.contains("\n") || safeValue.contains("\r");
+        String escaped = safeValue.replace("\"", "\"\"");
+        if (needsQuoting) {
+            return "\"" + escaped + "\"";
+        }
+        return escaped;
+    }
+
+    private void updateTrackingToggle() {
+        if (trackingPauseToggle == null || trackingService == null) {
+            return;
+        }
+        trackingPauseToggle.setSelected(trackingService.isPaused());
+        if (trackingConfig != null) {
+            trackingPauseToggle.setTooltip(new Tooltip(
+                    "Background polling: " + trackingConfig.pollingInterval().toSeconds() + "s, " +
+                            "idle threshold: " + trackingConfig.idleThreshold().toMinutes() + "m"));
+        }
+    }
+
+    ObservableList<Category> getCategoryItems() {
+        return categoryItems;
+    }
+
+    Category getSelectedCategory() {
+        return categoryListView.getSelectionModel().getSelectedItem();
+    }
+
+    Optional<SessionService.ActiveSession> getActiveSession() {
+        return sessionService.getActiveSession();
+    }
+
+    OptionalLong getRemainingSeconds(Category category) {
+        if (category == null) {
+            return OptionalLong.empty();
+        }
+        return sessionService.getRemainingSecondsForCategoryToday(category);
+    }
+
+    boolean canStartCategory(Category category) {
+        if (category == null) {
+            return false;
+        }
+        OptionalLong remaining = sessionService.getRemainingSecondsForCategoryToday(category);
+        return remaining.isEmpty() || remaining.getAsLong() > 0;
+    }
+
+    void toggleSessionFromCompact() {
+        onStartStop();
     }
 
     private record DateRange(LocalDate start, LocalDate end) {

@@ -4,6 +4,11 @@ import com.timetracker.model.SessionViewModel;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.MenuItem;
+import javafx.scene.layout.HBox;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Circle;
+import javafx.scene.text.Text;
+import com.timetracker.util.CategoryColorUtil;
 
 /**
  * ListCell implementation for displaying sessions with contextual actions.
@@ -43,9 +48,15 @@ class SessionListCell extends ListCell<SessionViewModel> {
         super.updateItem(item, empty);
         if (empty || item == null) {
             setText(null);
+            setGraphic(null);
             setContextMenu(null);
         } else {
-            setText(item.asDisplayString());
+            String colorHex = CategoryColorUtil.colorFor(item.categoryName());
+            Circle dot = new Circle(5, Color.web(colorHex));
+            Text text = new Text(item.asDisplayString());
+            HBox box = new HBox(8, dot, text);
+            setGraphic(box);
+            setText(null);
             setContextMenu(contextMenu);
         }
     }

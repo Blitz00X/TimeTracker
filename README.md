@@ -45,8 +45,8 @@ MainController (UI behaviour)
 TimeTracker/
 ├── run.sh                   # Convenience script to launch with Maven Wrapper
 ├── pom.xml                  # Maven build configuration
-├── docs/
-│   └── ARCHITECTURE.md      # In-depth architecture and layering guide
+├── docs/                    # Product and engineering docs (SRS, guides, specs)
+│   └── ARCHITECTURE.md      # Legacy architecture overview (see docs/Architecture.md)
 ├── src/
 │   ├── main/java/com/timetracker/
 │   │   ├── controller/      # JavaFX controllers & custom cells
@@ -114,6 +114,12 @@ Artifacts and compiled classes are placed in `target/`.
 - Switch to the History tab to pick any start/end date, review sessions, and export the same window to ICS or CSV.
 - The category summary table highlights total minutes per category so you can spot trends at a glance.
 
+## Screen/time tracking (early)
+
+- Background watcher records active window titles; on Linux it can optionally capture Brave/Chrome URLs via remote debugging.
+- Idle detection pauses tracking after inactivity (default 5 minutes).
+- Configure via environment: `TT_CAPTURE_URLS=true|false` (default true), `TT_REDACT_QUERY=true|false` (default true), `TT_POLL_SECONDS` (default 10), `TT_IDLE_MINUTES` (default 5).
+
 ## Troubleshooting
 
 - If the UI fails to load, double-check that JavaFX modules are available—`pom.xml` already declares the required dependencies.
@@ -125,6 +131,15 @@ Artifacts and compiled classes are placed in `target/`.
 - Use `./mvnw javafx:run` to launch directly from Maven without the helper script.
 - When contributing, keep runtime artifacts (`target/`, `*.log`, `*.db`) out of version control—see `.gitignore` for the current list.
 - Service-level tests live in `src/test/java`; Mockito-powered fakes keep SessionService logic testable without SQLite.
+
+## Documentation
+
+- High-level requirements: `docs/SRS.md`
+- Architecture and code tour: `docs/Architecture.md`, `docs/CodeWalkthrough.md`, `docs/ARCHITECTURE.md` (legacy)
+- Developer setup and standards: `docs/DeveloperGuide.md`, `docs/CodingStandards.md`
+- Data and flows: `docs/DB_Schema_DDL.md`, `docs/InternalFlows.md`
+- UI and QA: `docs/UI_Spec.md`, `docs/TestPlan.md`
+- Planning: `docs/Roadmap.md`
 
 ## Contributing
 
